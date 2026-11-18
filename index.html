@@ -1,0 +1,994 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="description" content="一个可以拖动训练轮次、点击样本、观察决策面的 XOR 多层感知机实验台：参数、梯度、损失与概率曲面同步联动。" />
+<meta name="theme-color" content="#070a12" />
+<title>XOR · 决策面实验室</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230b101c'/%3E%3Cpath d='M8 8l16 16M24 8L8 24' stroke='%238ef07a' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E" />
+<style>
+  :root{
+    --bg:#070a12; --bg2:#0a0f1b; --card:#0d1424; --card2:#111a2d;
+    --line:#1b2440; --line2:#26304f;
+    --ink:#e9eefc; --dim:#8a96b4; --dim2:#616e8e;
+    --lime:#8ef07a; --pink:#ff8aa8; --cyan:#5ad1ff; --amber:#ffc94d;
+    --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
+    --sans:"Inter",system-ui,-apple-system,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+    --r:16px;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth;-webkit-text-size-adjust:100%}
+  body{
+    margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);
+    font-size:15.5px;line-height:1.72;letter-spacing:.01em;
+    background-image:radial-gradient(900px 520px at 78% -8%,rgba(90,209,255,.10),transparent 62%),
+                     radial-gradient(760px 460px at 6% 4%,rgba(142,240,122,.075),transparent 60%),
+                     radial-gradient(circle at 1px 1px,rgba(255,255,255,.045) 1px,transparent 0);
+    background-size:auto,auto,26px 26px;
+    background-attachment:fixed;
+  }
+  a{color:var(--cyan);text-decoration:none}
+  a:hover{text-decoration:underline}
+  code,pre,.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+
+  /* ── top bar ─────────────────────────────── */
+  .bar{position:sticky;top:0;z-index:40;backdrop-filter:blur(14px);
+    background:rgba(7,10,18,.78);border-bottom:1px solid var(--line)}
+  .bar-in{max-width:1160px;margin:0 auto;padding:11px 24px;display:flex;align-items:center;gap:18px}
+  .brand{display:flex;align-items:center;gap:9px;font-weight:800;letter-spacing:.02em;font-size:14.5px}
+  .glyph{width:26px;height:26px;border-radius:8px;display:grid;place-items:center;
+    background:linear-gradient(145deg,#13203a,#0a1120);border:1px solid var(--line2);
+    color:var(--lime);font-family:var(--mono);font-size:14px;font-weight:700}
+  .brand small{color:var(--dim2);font-weight:600;letter-spacing:.12em;font-size:10.5px;text-transform:uppercase}
+  .nav{margin-left:auto;display:flex;gap:20px;font-size:13px}
+  .nav a{color:var(--dim);text-decoration:none;padding:4px 0;border-bottom:1px solid transparent;white-space:nowrap}
+  .nav a:hover{color:var(--ink);border-bottom-color:var(--lime);text-decoration:none}
+  @media (max-width:860px){.nav{display:none}}
+
+  /* ── shell ───────────────────────────────── */
+  main{max-width:1160px;margin:0 auto;padding:0 24px}
+  section{padding:64px 0;scroll-margin-top:70px;border-bottom:1px solid rgba(27,36,64,.7)}
+  section:last-of-type{border-bottom:0}
+  .kicker{display:inline-flex;align-items:center;gap:8px;font-family:var(--mono);font-size:11px;
+    letter-spacing:.18em;text-transform:uppercase;color:var(--lime);margin:0 0 18px}
+  .kicker::before{content:"";width:22px;height:1px;background:var(--lime);display:block}
+  h2{font-size:clamp(23px,3.1vw,33px);line-height:1.28;margin:0 0 14px;letter-spacing:-.015em;font-weight:800}
+  h3{font-size:16px;margin:0 0 8px;font-weight:750;letter-spacing:.005em}
+  p{margin:0 0 14px;color:var(--dim)}
+  .lead{font-size:16.5px;color:#a9b5d2;max-width:70ch}
+  .sub{font-size:13.5px;color:var(--dim2)}
+
+  /* ── hero ────────────────────────────────── */
+  .hero{padding:78px 0 58px;border-bottom:1px solid rgba(27,36,64,.7)}
+  .hero h1{font-size:clamp(34px,5.4vw,58px);line-height:1.1;margin:0 0 20px;letter-spacing:-.03em;font-weight:850}
+  .hero h1 em{font-style:normal;color:var(--lime)}
+  .hero h1 span{color:var(--dim2)}
+  .chips{display:flex;flex-wrap:wrap;gap:10px;margin-top:26px}
+  .chip{display:inline-flex;align-items:center;gap:8px;padding:7px 13px;border-radius:999px;
+    border:1px solid var(--line2);background:rgba(17,26,45,.7);font-size:12.5px;color:#b9c4de}
+  .chip b{font-family:var(--mono);color:var(--ink);font-weight:650;font-size:12px}
+  .dot{width:6px;height:6px;border-radius:50%;background:var(--lime);box-shadow:0 0 9px var(--lime)}
+
+  /* ── cards / grid ────────────────────────── */
+  .grid{display:grid;gap:18px}
+  .g2{grid-template-columns:1.12fr .88fr}
+  .g2e{grid-template-columns:1fr 1fr}
+  @media (max-width:920px){.g2,.g2e{grid-template-columns:1fr}}
+  .card{background:linear-gradient(180deg,var(--card),#0b1120);border:1px solid var(--line);
+    border-radius:var(--r);padding:20px;box-shadow:0 20px 46px -34px #000 inset,0 12px 34px -30px #000}
+  .card-h{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px}
+  .card-h h3{margin:0}
+  .tag{font-family:var(--mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;
+    color:var(--dim2);border:1px solid var(--line2);padding:3px 8px;border-radius:6px}
+
+  /* ── controls ────────────────────────────── */
+  .samples{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:16px}
+  .sbtn{appearance:none;cursor:pointer;font-family:var(--mono);font-size:13px;font-weight:600;
+    padding:11px 4px;border-radius:11px;border:1px solid var(--line2);background:#0a1120;color:#a8b4d0;
+    transition:.18s;letter-spacing:.02em}
+  .sbtn small{display:block;font-size:9.5px;letter-spacing:.11em;color:var(--dim2);font-weight:600;margin-top:2px}
+  .sbtn:hover{border-color:#33436b;color:var(--ink);transform:translateY(-1px)}
+  .sbtn.on{border-color:var(--lime);background:linear-gradient(180deg,rgba(142,240,122,.16),rgba(142,240,122,.05));
+    color:var(--lime);box-shadow:0 0 0 1px rgba(142,240,122,.25),0 8px 22px -14px var(--lime)}
+
+  .kv{display:grid;grid-template-columns:1fr auto;gap:0;font-size:13.5px}
+  .kv > div{padding:9px 0;border-bottom:1px dashed rgba(38,48,79,.75)}
+  .kv .k{color:var(--dim)}
+  .kv .v{font-family:var(--mono);font-variant-numeric:tabular-nums;color:var(--ink);text-align:right;font-size:13px}
+  .kv .v.hi{color:var(--lime);font-weight:650}
+  .kv > div:nth-last-child(-n+2){border-bottom:0}
+  .formula{font-family:var(--mono);font-size:12.5px;color:#b7c2dc;background:#080e1a;
+    border:1px solid var(--line);border-radius:10px;padding:11px 13px;margin-bottom:14px;line-height:1.9;overflow-x:auto}
+  .formula b{color:var(--cyan);font-weight:600}
+  .formula i{color:var(--amber);font-style:normal}
+
+  /* probability meter */
+  .meter{margin:16px 0 4px}
+  .meter-top{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:7px}
+  .meter-top span{font-size:11.5px;letter-spacing:.12em;color:var(--dim2);text-transform:uppercase;font-family:var(--mono)}
+  .meter-val{font-family:var(--mono);font-size:26px;font-weight:700;color:var(--ink);letter-spacing:-.02em}
+  .track{height:8px;border-radius:99px;background:#0a1120;border:1px solid var(--line);overflow:hidden;position:relative}
+  .fill{height:100%;border-radius:99px;background:linear-gradient(90deg,#3f7f5c,var(--lime));
+    box-shadow:0 0 14px rgba(142,240,122,.45);transition:width .28s cubic-bezier(.3,.8,.3,1)}
+  .track .mid{position:absolute;left:50%;top:-3px;bottom:-3px;width:1px;background:var(--line2)}
+
+  /* ── training console ────────────────────── */
+  .console{display:grid;grid-template-columns:1fr;gap:16px}
+  .row{display:flex;flex-wrap:wrap;align-items:center;gap:12px}
+  .epoch{font-family:var(--mono);font-size:12.5px;color:var(--dim)}
+  .epoch b{color:var(--ink);font-size:17px;font-weight:700;margin:0 2px}
+  input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:26px;background:transparent;cursor:pointer}
+  input[type=range]::-webkit-slider-runnable-track{height:6px;border-radius:99px;
+    background:linear-gradient(90deg,rgba(142,240,122,.55) 0%,rgba(142,240,122,.55) var(--pct,0%),#16203a var(--pct,0%),#16203a 100%);
+    border:1px solid var(--line)}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:16px;height:16px;border-radius:50%;
+    background:#0b1120;border:2px solid var(--lime);margin-top:-6px;box-shadow:0 0 12px rgba(142,240,122,.6)}
+  input[type=range]::-moz-range-track{height:6px;border-radius:99px;background:#16203a;border:1px solid var(--line)}
+  input[type=range]::-moz-range-thumb{width:14px;height:14px;border:2px solid var(--lime);background:#0b1120;border-radius:50%}
+
+  .btn{appearance:none;cursor:pointer;border-radius:10px;border:1px solid var(--line2);background:#0e1729;
+    color:#c3cee6;font-family:var(--sans);font-size:12.5px;font-weight:650;padding:9px 15px;transition:.16s;letter-spacing:.01em}
+  .btn:hover{border-color:#3a4a76;color:#fff;background:#121d33}
+  .btn.primary{border-color:var(--lime);color:#08110a;
+    background:linear-gradient(180deg,#a7f794,#7fe06a);box-shadow:0 8px 22px -14px var(--lime)}
+  .btn.primary:hover{filter:brightness(1.07)}
+  .btn.ghost{background:transparent}
+
+  .stats{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+  @media (max-width:560px){.stats{grid-template-columns:1fr}}
+  .stat{background:#0a1120;border:1px solid var(--line);border-radius:12px;padding:13px 15px}
+  .stat .lab{font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim2);font-family:var(--mono)}
+  .stat .num{font-family:var(--mono);font-size:22px;font-weight:700;letter-spacing:-.02em;margin-top:3px}
+  .stat .num small{font-size:12px;color:var(--dim2);font-weight:500;letter-spacing:0}
+
+  canvas{display:block;width:100%;height:auto;border-radius:12px;border:1px solid var(--line);background:#080d18}
+
+  /* ── code ────────────────────────────────── */
+  pre{margin:0;background:#070c16;border:1px solid var(--line);border-radius:12px;padding:15px 16px;
+    overflow-x:auto;font-size:12.4px;line-height:1.85;color:#c5d0e8}
+  pre .c{color:#5d6b8c}
+  pre .k{color:#ff9ec4}
+  pre .f{color:#6fd6ff}
+  pre .n{color:#ffc94d}
+  pre .s{color:#8ef07a}
+  .note{display:flex;gap:10px;font-size:13px;color:var(--dim);margin-top:14px;
+    border-left:2px solid var(--line2);padding-left:12px}
+  .note b{color:#cdd7ee;font-weight:650}
+
+  /* ── table ───────────────────────────────── */
+  .tablewrap{overflow-x:auto;border:1px solid var(--line);border-radius:12px}
+  table{border-collapse:collapse;width:100%;font-size:13px;min-width:520px}
+  th,td{padding:10px 14px;text-align:right;border-bottom:1px solid rgba(27,36,64,.8)}
+  th:first-child,td:first-child{text-align:left}
+  thead th{font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--dim2);
+    font-family:var(--mono);font-weight:600;background:#0a1120}
+  tbody tr:last-child td{border-bottom:0}
+  td{font-family:var(--mono);font-variant-numeric:tabular-nums;color:#c9d4ea}
+  td:first-child{font-family:var(--mono);color:var(--dim)}
+  tfoot td{background:#0a1120;color:var(--lime);font-weight:650}
+
+  /* ── steps ───────────────────────────────── */
+  .steps{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;counter-reset:s}
+  @media (max-width:860px){.steps{grid-template-columns:1fr 1fr}}
+  @media (max-width:520px){.steps{grid-template-columns:1fr}}
+  .step{position:relative;padding:18px 16px 16px;background:#0a1120;border:1px solid var(--line);border-radius:13px}
+  .step::before{counter-increment:s;content:"0" counter(s);position:absolute;top:12px;right:14px;
+    font-family:var(--mono);font-size:11px;color:var(--dim2);letter-spacing:.1em}
+  .step h4{margin:0 0 6px;font-size:14px;font-weight:700;color:#dce4f7}
+  .step code{display:block;font-size:11.5px;color:var(--cyan);margin-bottom:8px;word-break:break-word}
+  .step p{font-size:12.5px;margin:0;color:var(--dim2);line-height:1.65}
+
+  footer{padding:34px 0 60px;color:var(--dim2);font-size:12.5px}
+  .foot-in{display:flex;flex-wrap:wrap;gap:12px;justify-content:space-between;align-items:center}
+  .legend{display:flex;flex-wrap:wrap;gap:14px;font-size:12px;color:var(--dim);margin-top:12px}
+  .legend i{display:inline-block;width:16px;height:3px;border-radius:2px;margin-right:6px;vertical-align:middle}
+  .swatch{width:10px;height:10px;border-radius:3px;display:inline-block;margin-right:6px;vertical-align:middle}
+  .hint{font-family:var(--mono);font-size:11px;color:var(--dim2);letter-spacing:.06em}
+</style>
+</head>
+<body>
+
+<div class="bar">
+  <div class="bar-in">
+    <div class="brand"><span class="glyph">⊕</span><span>XOR Lab<br><small>decision surface</small></span></div>
+    <nav class="nav">
+      <a href="#forward">前向拆解</a>
+      <a href="#surface">决策面</a>
+      <a href="#train">训练台</a>
+      <a href="#impl">两种写法</a>
+      <a href="#runs">实测参数</a>
+    </nav>
+  </div>
+</div>
+
+<main>
+
+  <!-- ══ hero ══ -->
+  <div class="hero">
+    <div class="kicker">interactive · backprop</div>
+    <h1>一个只有 9 个参数的网络<br>如何<em>折叠</em>出 XOR<span>。</span></h1>
+    <p class="lead">
+      2 → 2 → 1 的多层感知机，四个样本，两个隐藏单元。拖动轮次、切换样本、把概率曲面摊开看——
+      权重、偏置、梯度、决策边界会同时改变。全部计算在你浏览器里完成。
+    </p>
+    <div class="chips">
+      <span class="chip"><span class="dot"></span>全批量 <b>BCE</b> + <b>Adam</b></span>
+      <span class="chip">参数量 <b>9</b></span>
+      <span class="chip">默认训练 <b>260</b> 轮 · lr <b>0.06</b></span>
+      <span class="chip">纯前端 · 无请求</span>
+    </div>
+  </div>
+
+  <!-- ══ forward ══ -->
+  <section id="forward">
+    <div class="kicker">step 01 · forward pass</div>
+    <h2>一次预测里，每个参数都在场</h2>
+    <p class="lead">连线越粗，权重绝对值越大；绿色为正、粉色为负。点一个样本，右侧把这一路的数值全部展开。</p>
+
+    <div class="grid g2" style="margin-top:26px">
+      <div class="card">
+        <div class="card-h"><h3>网络与当前权重</h3><span class="tag" id="epochTag">epoch 260</span></div>
+        <div class="samples" id="samples"></div>
+        <svg id="net" viewBox="0 0 480 330" role="img" aria-label="2-2-1 多层感知机结构图" style="width:100%;height:auto"></svg>
+        <div class="legend">
+          <span><i style="background:var(--lime)"></i>正权重</span>
+          <span><i style="background:var(--pink)"></i>负权重</span>
+          <span class="hint">线宽 ∝ |w| · 悬停看具体数值</span>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-h"><h3>样本 <span class="mono" id="sampleTitle" style="color:var(--lime)">[0, 0]</span></h3><span class="tag">target <b id="targetTag" class="mono">0</b></span></div>
+        <div class="formula">
+          <b>z</b> = x·W + b &nbsp;→&nbsp; <b>h</b> = σ(z)<br>
+          <b>ŷ</b> = σ(h·v + c) &nbsp;&nbsp;<i>// logit = h·v + c</i>
+        </div>
+        <div class="kv" id="detail"></div>
+        <div class="meter">
+          <div class="meter-top"><span>ŷ · 预测概率</span><span class="mono" id="verdict" style="font-size:11.5px;color:var(--dim2)"></span></div>
+          <div class="track"><div class="fill" id="bar" style="width:0%"></div><div class="mid"></div></div>
+          <div style="display:flex;justify-content:space-between;margin-top:6px">
+            <span class="meter-val" id="prob">—</span>
+            <span class="hint" style="align-self:flex-end">阈值 0.5</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══ surface ══ -->
+  <section id="surface">
+    <div class="kicker">step 02 · decision surface</div>
+    <h2>把整块输入平面染成概率</h2>
+    <p class="lead">把 [0,1]² 里每个点都喂进去，颜色就是网络给出的概率。四个 XOR 样本被放在自己的坐标上——只有两个隐藏单元把平面折出折痕，颜色才可能对角相同。</p>
+
+    <div class="grid g2e" style="margin-top:26px">
+      <div class="card">
+        <div class="card-h"><h3>P(ŷ = 1 | x₁, x₂)</h3><span class="tag" id="surfTag">epoch 260</span></div>
+        <canvas id="surfCanvas" width="620" height="620" aria-label="XOR 决策面热力图"></canvas>
+        <div class="legend" style="margin-top:12px">
+          <span><span class="swatch" style="background:#8ef07a"></span>接近 1</span>
+          <span><span class="swatch" style="background:#2a4a6e"></span>接近 0.5</span>
+          <span><span class="swatch" style="background:#ff8aa8"></span>接近 0</span>
+          <span class="hint">白线为 0.5 等值线</span>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-h"><h3>初始化的两种命运</h3><span class="tag">9 个参数</span></div>
+        <p style="font-size:13.5px">同一个网络、同样的学习率，只换一组初始化：一组收敛到 4/4，另一组把两个隐藏单元压成同一个方向，只能分出 2/4。XOR 不是「一定学得会」，而是「有机会学得会」。</p>
+        <div class="row" style="margin:16px 0">
+          <button class="btn primary" id="presetA">初始化 A · 收敛</button>
+          <button class="btn" id="presetB">初始化 B · 塌缩</button>
+        </div>
+        <div class="stats">
+          <div class="stat"><div class="lab">最终 loss</div><div class="num" id="stLoss">—</div></div>
+          <div class="stat"><div class="lab">命中</div><div class="num" id="stAcc">—</div></div>
+          <div class="stat"><div class="lab">max |w|</div><div class="num" id="stW">—</div></div>
+        </div>
+        <div class="note"><span>↳</span><div id="presetNote">初始化 A：uniform(−1,1)、seed 42，第 <b>62</b> 轮首次 4/4。</div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══ training ══ -->
+  <section id="train">
+    <div class="kicker">step 03 · training console</div>
+    <h2>把训练过程拉开成一条可拖动的线</h2>
+    <p class="lead">下面这段训练同样是纯 JavaScript：全批量二元交叉熵、手写反向传播、Adam 更新。拖动滑块，上一步的决策面会跟着变。灰色虚线是另一组初始化的轨迹。</p>
+
+    <div class="card" style="margin-top:26px">
+      <div class="console">
+        <div class="row" style="justify-content:space-between">
+          <div class="epoch">轮次 <b id="epNow">260</b> / <span id="epMax">260</span></div>
+          <div class="row" style="gap:8px">
+            <button class="btn primary" id="play">▶ 从头播放</button>
+            <button class="btn ghost" id="reset">回到第 0 轮</button>
+            <button class="btn ghost" id="copy">复制参数</button>
+          </div>
+        </div>
+        <div>
+          <input id="slider" type="range" min="0" max="260" value="260" step="1" aria-label="训练轮次" />
+        </div>
+        <canvas id="curve" width="1120" height="300" aria-label="损失曲线"></canvas>
+        <div class="stats">
+          <div class="stat"><div class="lab">loss · BCE</div><div class="num" id="cLoss">—</div></div>
+          <div class="stat"><div class="lab">accuracy</div><div class="num" id="cAcc">—<small>/4</small></div></div>
+          <div class="stat"><div class="lab">max |w|</div><div class="num" id="cW">—</div></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══ impl ══ -->
+  <section id="impl">
+    <div class="kicker">step 04 · two ways</div>
+    <h2>同一套数学，两种书写习惯</h2>
+    <p class="lead">下面两份代码训练出的参数几乎逐位相同。区别不在能力，而在「谁替你保存中间变量」：命令式框架把状态挂在对象上，函数式框架把状态当参数传。</p>
+
+    <div class="grid g2e" style="margin-top:26px">
+      <div class="card">
+        <div class="card-h"><h3>PyTorch · 状态挂在张量上</h3><span class="tag">imperative</span></div>
+        <pre><code><span class="k">import</span> torch, torch.nn.functional <span class="k">as</span> F
+
+torch.manual_seed(<span class="n">42</span>)
+W = torch.empty(<span class="n">2</span>, <span class="n">2</span>).uniform_(<span class="n">-1</span>, <span class="n">1</span>).requires_grad_()
+b = torch.zeros(<span class="n">2</span>, requires_grad=<span class="k">True</span>)
+v = torch.empty(<span class="n">2</span>, <span class="n">1</span>).uniform_(<span class="n">-1</span>, <span class="n">1</span>).requires_grad_()
+c = torch.zeros(<span class="n">1</span>, requires_grad=<span class="k">True</span>)
+opt = torch.optim.Adam([W, b, v, c], lr=<span class="n">0.06</span>)
+
+<span class="k">for</span> step <span class="k">in</span> <span class="f">range</span>(<span class="n">260</span>):
+    h     = torch.sigmoid(x @ W + b)                  <span class="c"># 4×2 隐藏层</span>
+    logit = h @ v + c                                 <span class="c"># 4×1</span>
+    loss  = F.binary_cross_entropy_with_logits(logit, y)
+    opt.zero_grad()
+    loss.backward()        <span class="c"># 梯度写进 .grad</span>
+    opt.step()             <span class="c"># 按 .grad 更新参数</span></code></pre>
+        <div class="note"><span>↳</span><div>可以随时停下看 <b>.grad</b>、替换其中一行、或把 <b>Adam</b> 换成 <b>SGD</b>——状态都在对象里，改哪个都可控。</div></div>
+      </div>
+
+      <div class="card">
+        <div class="card-h"><h3>JAX · 状态当参数传</h3><span class="tag">functional</span></div>
+        <pre><code><span class="k">import</span> jax, jax.numpy <span class="k">as</span> jnp, optax
+
+<span class="k">def</span> <span class="f">forward</span>(p, x):
+    h = jax.nn.sigmoid(x @ p[<span class="s">"W"</span>] + p[<span class="s">"b"</span>])
+    <span class="k">return</span> h @ p[<span class="s">"v"</span>] + p[<span class="s">"c"</span>], h
+
+<span class="k">def</span> <span class="f">loss_fn</span>(p, x, y):
+    logit, _ = forward(p, x)
+    <span class="k">return</span> jnp.mean(optax.sigmoid_binary_cross_entropy(logit, y))
+
+grad_fn = jax.jit(jax.value_and_grad(loss_fn))   <span class="c"># 纯函数可 jit</span>
+opt, state = optax.adam(<span class="n">0.06</span>), optax.adam(<span class="n">0.06</span>).init(params)
+
+<span class="k">for</span> step <span class="k">in</span> <span class="f">range</span>(<span class="n">260</span>):
+    loss, grads = grad_fn(params, x, y)   <span class="c"># 无副作用</span>
+    updates, state = opt.update(grads, state, params)
+    params = optax.apply_updates(params, updates)</code></pre>
+        <div class="note"><span>↳</span><div>没有可变的 <b>.grad</b>，梯度只是返回值；同一份 <b>loss_fn</b> 可以 jit、可以 vmap、可以在 TPU 上重排。</div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══ runs ══ -->
+  <section id="runs">
+    <div class="kicker">step 05 · measured</div>
+    <h2>本地跑两次：float64 与 float32</h2>
+    <p class="lead">同样的初始化、同样的超参数，只把数值精度从 float64 换成 float32。参数在末位开始分歧，但符号、结构与分类结果一致——都给出 [0, 1, 1, 0]。</p>
+
+    <div class="grid g2e" style="margin-top:26px">
+      <div class="card">
+        <div class="card-h"><h3>参数对照</h3><span class="tag">9 params</span></div>
+        <div class="tablewrap">
+          <table>
+            <thead><tr><th>参数</th><th>NumPy · float64</th><th>Torch 语义 · float32</th></tr></thead>
+            <tbody id="paramRows"></tbody>
+            <tfoot><tr><td>最大差</td><td colspan="2">2.1e−06</td></tr></tfoot>
+          </table>
+        </div>
+        <div class="note"><span>↳</span><div>9 个参数里有 4 个在末位分歧，量级 <b>2e−06</b>；对 0/1 判定与四条预测概率都没有影响。</div></div>
+      </div>
+
+      <div class="card">
+        <div class="card-h"><h3>四次前向的输出</h3><span class="tag">ŷ</span></div>
+        <div class="tablewrap">
+          <table>
+            <thead><tr><th>样本</th><th>目标</th><th>float64</th><th>float32</th></tr></thead>
+            <tbody>
+              <tr><td>[0, 0]</td><td>0</td><td>0.0134</td><td>0.0134</td></tr>
+              <tr><td>[0, 1]</td><td>1</td><td>0.9885</td><td>0.9885</td></tr>
+              <tr><td>[1, 0]</td><td>1</td><td>0.9886</td><td>0.9886</td></tr>
+              <tr><td>[1, 1]</td><td>0</td><td>0.0116</td><td>0.0116</td></tr>
+            </tbody>
+            <tfoot><tr><td>判定</td><td colspan="3">[[0, 1, 1, 0]] ✓</td></tr></tfoot>
+          </table>
+        </div>
+        <div class="note"><span>↳</span><div>最终 loss <b>0.0121</b>；两个隐藏单元沿对角线分工：一个在 x₁+x₂ 超过阈值后亮起，另一个只在 (1,1) 角饱和，两者相减正好留下穿过 (0,1)、(1,0) 的那条带。</div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══ steps ══ -->
+  <section id="steps">
+    <div class="kicker">step 06 · inside one iteration</div>
+    <h2>一轮里到底发生了什么</h2>
+    <p class="lead">四步、九个参数、一次全批量。把它拆开看，Adam 就不再是黑箱。</p>
+    <div class="steps" style="margin-top:24px">
+      <div class="step">
+        <h4>线性投影</h4>
+        <code>z = x·W + b</code>
+        <p>四个样本各得到两个隐藏预激活值，输入平面第一次被两条直线切开。</p>
+      </div>
+      <div class="step">
+        <h4>压进概率</h4>
+        <code>h = σ(z)</code>
+        <p>Sigmoid 把每个预激活折到 (0,1)，非线性在这里出现，XOR 才有可能。</p>
+      </div>
+      <div class="step">
+        <h4>读数与损失</h4>
+        <code>logit = h·v + c</code>
+        <p>再线性组合一次，用带 logits 的交叉熵衡量与目标的距离。</p>
+      </div>
+      <div class="step">
+        <h4>Adam 更新</h4>
+        <code>θ ← θ − lr·m̂/(√v̂+ε)</code>
+        <p>一阶、二阶动量一起用，学习率 0.06，九个参数同步移动。</p>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <div class="foot-in">
+      <span>XOR · 决策面实验室 — 单文件静态页面，纯前端计算。</span>
+      <span class="hint">Math: full-batch BCEWithLogits · Adam(0.9, 0.999) · sigmoid 隐藏层</span>
+    </div>
+  </footer>
+
+</main>
+
+<script>
+(() => {
+  "use strict";
+
+  /* ── 数据与超参数 ─────────────────────────── */
+  const X = [[0,0],[0,1],[1,0],[1,1]];
+  const Y = [0,1,1,0];
+  const EPOCHS = 260, LR = 0.06, EPS = 1e-8, B1 = 0.9, B2 = 0.999;
+
+  const PRESETS = {
+    A: { W:[[0.547912,-0.122243],[0.717196,0.394736]], b:[0,0], V:[-0.811645,0.951245], c:0,
+         note:'初始化 A：uniform(−1,1)、seed 42，第 <b>62</b> 轮首次 4/4。' },
+    B: { W:[[-0.74286,-0.001444],[0.202997,-0.942622]], b:[0,0], V:[-0.704148,0.856422], c:0,
+         note:'初始化 B：seed 11，两个隐藏单元近似共线，第 260 轮仍只命中 <b>2/4</b>。' }
+  };
+
+  const sig = z => 1/(1+Math.exp(-z));
+  const f2 = (n,d=4) => (n<0?"−":"") + Math.abs(n).toFixed(d);
+  const signed = (n,d=3) => (n<0?"−":"+") + Math.abs(n).toFixed(d);
+
+  function forward(p, x){
+    const z0 = x[0]*p.W[0][0] + x[1]*p.W[1][0] + p.b[0];
+    const z1 = x[0]*p.W[0][1] + x[1]*p.W[1][1] + p.b[1];
+    const h0 = sig(z0), h1 = sig(z1);
+    const logit = h0*p.V[0] + h1*p.V[1] + p.c;
+    return { z:[z0,z1], h:[h0,h1], logit, p:sig(logit) };
+  }
+
+  function clone(p){
+    return { W:[p.W[0].slice(), p.W[1].slice()], b:p.b.slice(), V:p.V.slice(), c:p.c };
+  }
+
+  function train(init){
+    const p = clone(init);
+    const m = { W:[[0,0],[0,0]], b:[0,0], V:[0,0], c:0 };
+    const v = { W:[[0,0],[0,0]], b:[0,0], V:[0,0], c:0 };
+    const traj = [];
+
+    const snapshot = () => {
+      let loss = 0, acc = 0; const pred = [];
+      for (let i=0;i<4;i++){
+        const o = forward(p, X[i]), lg = o.logit, y = Y[i];
+        loss += Math.log1p(Math.exp(-Math.abs(lg))) + Math.max(lg,0) - y*lg;
+        pred.push(o.p);
+        if ((o.p > 0.5) === (y > 0.5)) acc++;
+      }
+      return { state: clone(p), loss: loss/4, acc, pred };
+    };
+
+    const step = (cur, g, mm, vv, t) => {
+      const m2 = B1*mm + (1-B1)*g;
+      const v2 = B2*vv + (1-B2)*g*g;
+      const mh = m2/(1-Math.pow(B1,t)), vh = v2/(1-Math.pow(B2,t));
+      return [cur - LR*mh/(Math.sqrt(vh)+EPS), m2, v2];
+    };
+
+    traj.push(snapshot());
+
+    for (let t=1; t<=EPOCHS; t++){
+      const gW = [[0,0],[0,0]], gb = [0,0], gV = [0,0];
+      let gc = 0;
+      for (let i=0;i<4;i++){
+        const x = X[i], y = Y[i], o = forward(p, x);
+        const dl = (o.p - y)/4;
+        const d0 = dl*o.h[0]*(1-o.h[0]);
+        const d1 = dl*o.h[1]*(1-o.h[1]);
+        /* 隐藏层回传：dL/dz = (dl·v) * h(1-h) */
+        const dz0 = dl*p.V[0]*o.h[0]*(1-o.h[0]);
+        const dz1 = dl*p.V[1]*o.h[1]*(1-o.h[1]);
+        for (let k=0;k<2;k++){
+          gW[k][0] += x[k]*dz0;
+          gW[k][1] += x[k]*dz1;
+        }
+        gb[0] += dz0; gb[1] += dz1;
+        gV[0] += o.h[0]*dl; gV[1] += o.h[1]*dl;
+        gc += dl;
+        void d0; void d1;
+      }
+      for (let r=0;r<2;r++) for (let k=0;k<2;k++){
+        const [n, mm, vv] = step(p.W[r][k], gW[r][k], m.W[r][k], v.W[r][k], t);
+        p.W[r][k]=n; m.W[r][k]=mm; v.W[r][k]=vv;
+      }
+      for (let k=0;k<2;k++){
+        let r1 = step(p.b[k], gb[k], m.b[k], v.b[k], t);
+        p.b[k]=r1[0]; m.b[k]=r1[1]; v.b[k]=r1[2];
+        let r2 = step(p.V[k], gV[k], m.V[k], v.V[k], t);
+        p.V[k]=r2[0]; m.V[k]=r2[1]; v.V[k]=r2[2];
+      }
+      let rc = step(p.c, gc, m.c, v.c, t);
+      p.c=rc[0]; m.c=rc[1]; v.c=rc[2];
+
+      traj.push(snapshot());
+    }
+    return traj;
+  }
+
+  const TRAJ = { A: train(PRESETS.A), B: train(PRESETS.B) };
+
+  const ui = {
+    preset: "A",
+    epoch: EPOCHS,
+    sample: 0,
+    timer: null
+  };
+
+  const $ = id => document.getElementById(id);
+  const cur = () => TRAJ[ui.preset][ui.epoch];
+
+  /* ── 样本按钮 ─────────────────────────────── */
+  const sampleBox = $("samples");
+  X.forEach((x,i) => {
+    const b = document.createElement("button");
+    b.className = "sbtn" + (i===0?" on":"");
+    b.type = "button";
+    b.innerHTML = `[${x[0]}, ${x[1]}]<small>→ ${Y[i]}</small>`;
+    b.addEventListener("click", () => {
+      ui.sample = i;
+      [...sampleBox.children].forEach((c,k) => c.classList.toggle("on", k===i));
+      renderForward();
+    });
+    sampleBox.appendChild(b);
+  });
+
+  /* ── 网络图 ───────────────────────────────── */
+  const NS = "http://www.w3.org/2000/svg";
+  const net = $("net");
+  const NODES = {
+    in:  [[66,112],[66,218]],
+    hid: [[246,92],[246,238]],
+    out: [[424,165]]
+  };
+  let edgeEls = [];
+
+  function buildNet(){
+    net.innerHTML = "";
+    const defs = document.createElementNS(NS,"defs");
+    defs.innerHTML = `
+      <radialGradient id="gNode" cx="35%" cy="28%" r="80%">
+        <stop offset="0%" stop-color="#22304f"/><stop offset="100%" stop-color="#0d1424"/>
+      </radialGradient>
+      <radialGradient id="gOut" cx="35%" cy="28%" r="80%">
+        <stop offset="0%" stop-color="#1d4a36"/><stop offset="100%" stop-color="#0d1424"/>
+      </radialGradient>`;
+    net.appendChild(defs);
+
+    const mk = (t, a) => { const e = document.createElementNS(NS,t); for (const k in a) e.setAttribute(k,a[k]); return e; };
+
+    // h → out edges
+    const hv = [[NODES.hid[0], NODES.out[0]], [NODES.hid[1], NODES.out[0]]];
+    // in → h edges
+    const ih = [];
+    for (let i=0;i<2;i++) for (let j=0;j<2;j++) ih.push([NODES.in[i], NODES.hid[j], i, j]);
+
+    const gEdges = mk("g",{});
+    net.appendChild(gEdges);
+
+    const all = [];
+    ih.forEach(([a,b,i,j]) => {
+      const l = mk("line",{x1:a[0],y1:a[1],x2:b[0],y2:b[1],stroke:"#8ef07a","stroke-linecap":"round",opacity:".85"});
+      gEdges.appendChild(l);
+      all.push({el:l, kind:"W", i, j});
+    });
+    hv.forEach(([a,b],k) => {
+      const l = mk("line",{x1:a[0],y1:a[1],x2:b[0],y2:b[1],stroke:"#8ef07a","stroke-linecap":"round",opacity:".85"});
+      gEdges.appendChild(l);
+      all.push({el:l, kind:"V", i:k, j:0});
+    });
+    edgeEls = all;
+
+    // nodes
+    const node = (x,y,r,fill,label,sub) => {
+      const g = mk("g",{});
+      g.appendChild(mk("circle",{cx:x,cy:y,r:r+5,fill:"none",stroke:"#1b2440","stroke-width":"1"}));
+      g.appendChild(mk("circle",{cx:x,cy:y,r,fill,stroke:"#26304f","stroke-width":"1"}));
+      const t = mk("text",{x,y:y+1,"text-anchor":"middle","dominant-baseline":"middle",
+        fill:"#e9eefc","font-family":"ui-monospace,monospace","font-size":"12.5","font-weight":"600"});
+      t.textContent = label; g.appendChild(t);
+      if (sub){
+        const s = mk("text",{x:x, y:y+r+17,"text-anchor":"middle",fill:"#616e8e",
+          "font-family":"ui-monospace,monospace","font-size":"10.5"});
+        s.textContent = sub; g.appendChild(s);
+      }
+      net.appendChild(g);
+      return g;
+    };
+
+    node(NODES.in[0][0],NODES.in[0][1],22,"url(#gNode)","x₁","");
+    node(NODES.in[1][0],NODES.in[1][1],22,"url(#gNode)","x₂","");
+    node(NODES.hid[0][0],NODES.hid[0][1],24,"url(#gNode)","h₁","");
+    node(NODES.hid[1][0],NODES.hid[1][1],24,"url(#gNode)","h₂","");
+    const outG = node(NODES.out[0][0],NODES.out[0][1],26,"url(#gOut)","ŷ","");
+
+    const lab = (x,y,txt,color,size) => {
+      const t = mk("text",{x,y,fill:color,"font-family":"ui-monospace,monospace","font-size":size||"10.5",
+        "text-anchor":"middle",opacity:".9"});
+      t.textContent = txt; net.appendChild(t);
+    };
+    lab(66,58,"input · 2","#616e8e");
+    lab(246,44,"hidden · 2 · sigmoid","#616e8e");
+    lab(424,112,"output · 1","#616e8e");
+
+    // value readouts are drawn on top of nodes by renderForward()
+    net.dataset.ready = "1";
+    outG.setAttribute("data-out","1");
+  }
+
+  const nodeVals = {};
+  function ensureReadouts(){
+    if (nodeVals.done) return;
+    const NSg = NS;
+    const mk = (t,a)=>{const e=document.createElementNS(NSg,t);for(const k in a)e.setAttribute(k,a[k]);return e;};
+    const put = (x,y) => {
+      const t = mk("text",{x, y, "text-anchor":"middle", fill:"#8ef07a",
+        "font-family":"ui-monospace,monospace","font-size":"11","font-weight":"600"});
+      net.appendChild(t); return t;
+    };
+    nodeVals.h1 = put(246, 92+40);
+    nodeVals.h2 = put(246, 238+40);
+    nodeVals.out = put(424, 165+46);
+    nodeVals.done = true;
+  }
+
+  function renderNet(){
+    const s = cur().state;
+    const maxW = Math.max(
+      Math.abs(s.W[0][0]),Math.abs(s.W[0][1]),Math.abs(s.W[1][0]),Math.abs(s.W[1][1]),
+      Math.abs(s.V[0]),Math.abs(s.V[1]), 1e-9);
+    edgeEls.forEach(e => {
+      const w = e.kind === "W" ? s.W[e.i][e.j] : s.V[e.i];
+      const mag = Math.abs(w)/maxW;
+      e.el.setAttribute("stroke-width", (1.2 + mag*11).toFixed(2));
+      e.el.setAttribute("stroke", w >= 0 ? "#8ef07a" : "#ff8aa8");
+      e.el.setAttribute("opacity", (0.28 + mag*0.62).toFixed(3));
+      const name = e.kind === "W" ? `w${e.i}${e.j}` : `v${e.i}`;
+      const title = document.createElementNS(NS,"title");
+      title.textContent = `${name} = ${w.toFixed(4)}`;
+      if (!e.el.querySelector("title")) e.el.appendChild(title);
+    });
+    ensureReadouts();
+    const o = forward(s, X[ui.sample]);
+    const tiny = v => (v < 0.001 ? "<.001" : v > 0.999 ? ">.999" : v.toFixed(3));
+    nodeVals.h1.textContent = "h₁ " + tiny(o.h[0]);
+    nodeVals.h2.textContent = "h₂ " + tiny(o.h[1]);
+    nodeVals.out.textContent = "ŷ " + tiny(o.p);
+  }
+
+  /* ── 前向细节面板 ─────────────────────────── */
+  function renderForward(){
+    const st = cur().state;
+    const x = X[ui.sample];
+    const o = forward(st, x);
+    $("sampleTitle").textContent = `[${x[0]}, ${x[1]}]`;
+    $("targetTag").textContent = Y[ui.sample];
+
+    const rows = [
+      ["输入 x", `<span style="color:#a9b5d2">(${x[0]}, ${x[1]})</span>`],
+      ["z₁ = x·W[:,0] + b₀", f2(o.z[0],3)],
+      ["z₂ = x·W[:,1] + b₁", f2(o.z[1],3)],
+      ["h₁ = σ(z₁)", f2(o.h[0],4)],
+      ["h₂ = σ(z₂)", f2(o.h[1],4)],
+      ["logit = h·v + c", f2(o.logit,4)],
+      ["ŷ = σ(logit)", `<span style="color:var(--lime)">${f2(o.p,4)}</span>`]
+    ];
+    $("detail").innerHTML = rows.map(([k,v],i)=>{
+      const hi = i === rows.length-1;
+      return `<div><span class="k">${k}</span></div><div class="v${hi?" hi":""}">${v}</div>`;
+    }).join("");
+
+    $("prob").textContent = o.p.toFixed(4);
+    $("bar").style.width = (o.p*100).toFixed(1) + "%";
+    const ok = (o.p > 0.5) === (Y[ui.sample] > 0.5);
+    $("verdict").innerHTML = ok
+      ? `<span style="color:var(--lime)">✓ 判定正确</span>`
+      : `<span style="color:var(--pink)">✗ 判定错误</span>`;
+    $("bar").style.background = ok
+      ? "linear-gradient(90deg,#3f7f5c,#8ef07a)"
+      : "linear-gradient(90deg,#6b3550,#ff8aa8)";
+    $("bar").style.boxShadow = ok ? "0 0 14px rgba(142,240,122,.45)" : "0 0 14px rgba(255,138,168,.45)";
+  }
+
+  /* ── 决策面 ───────────────────────────────── */
+  const surf = $("surfCanvas");
+  const sctx = surf.getContext("2d");
+
+  function lerpColor(t){
+    // 0 → pink, 0.5 → deep blue, 1 → lime
+    const stops = [
+      [0.00, [255,138,168]],
+      [0.35, [122,86,138]],
+      [0.50, [42,74,110]],
+      [0.65, [66,124,120]],
+      [1.00, [142,240,122]]
+    ];
+    let a = stops[0], b = stops[stops.length-1];
+    for (let i=0;i<stops.length-1;i++){
+      if (t >= stops[i][0] && t <= stops[i+1][0]) { a = stops[i]; b = stops[i+1]; break; }
+    }
+    const k = (t - a[0]) / Math.max(1e-6, b[0]-a[0]);
+    return [
+      Math.round(a[1][0] + (b[1][0]-a[1][0])*k),
+      Math.round(a[1][1] + (b[1][1]-a[1][1])*k),
+      Math.round(a[1][2] + (b[1][2]-a[1][2])*k)
+    ];
+  }
+
+  function renderSurface(){
+    const st = cur().state;
+    const N = surf.width;                       // 620
+    const img = sctx.createImageData(N, N);
+    const data = img.data;
+    const lo = -0.28, hi = 1.28, span = hi - lo;
+
+    for (let py=0; py<N; py++){
+      const y = hi - (py+0.5)/N*span;
+      for (let px=0; px<N; px++){
+        const x = lo + (px+0.5)/N*span;
+        const p = sig(
+          sig(x*st.W[0][0] + y*st.W[1][0] + st.b[0])*st.V[0] +
+          sig(x*st.W[0][1] + y*st.W[1][1] + st.b[1])*st.V[1] + st.c
+        );
+        const c = lerpColor(p);
+        const i = (py*N + px)*4;
+        data[i]=c[0]; data[i+1]=c[1]; data[i+2]=c[2]; data[i+3]=255;
+      }
+    }
+    sctx.putImageData(img, 0, 0);
+
+    // 0.5 contour
+    sctx.save();
+    sctx.strokeStyle = "rgba(255,255,255,.75)";
+    sctx.lineWidth = 1.4;
+    const s = (v) => (v - lo)/span*N;
+    for (let py=1; py<N; py++){
+      const yA = hi - (py-0.5)/N*span, yB = hi - (py+0.5)/N*span;
+      for (let px=0; px<N; px++){
+        const x = lo + (px+0.5)/N*span;
+        const f = (yy) => sig(sig(x*st.W[0][0]+yy*st.W[1][0]+st.b[0])*st.V[0] +
+                             sig(x*st.W[0][1]+yy*st.W[1][1]+st.b[1])*st.V[1] + st.c);
+        if ((f(yA)-0.5)*(f(yB)-0.5) < 0){
+          sctx.beginPath();
+          sctx.moveTo(px, py-1); sctx.lineTo(px, py);
+          sctx.stroke();
+        }
+      }
+    }
+    sctx.restore();
+
+    // 样本点
+    X.forEach((pt, i) => {
+      const cx = s(pt[0]), cy = N - s(pt[1]);
+      const on = i === ui.sample;
+      sctx.beginPath();
+      sctx.arc(cx, cy, on ? 11 : 8, 0, Math.PI*2);
+      sctx.fillStyle = Y[i] === 1 ? "#8ef07a" : "#0b1120";
+      sctx.fill();
+      sctx.lineWidth = on ? 3 : 2;
+      sctx.strokeStyle = on ? "#ffffff" : (Y[i]===1 ? "#8ef07a" : "#ff8aa8");
+      sctx.stroke();
+      sctx.fillStyle = Y[i] === 1 ? "#08110a" : "#ff8aa8";
+      sctx.font = "600 11px ui-monospace,monospace";
+      sctx.textAlign = "center";
+      sctx.textBaseline = "middle";
+      sctx.fillText(String(Y[i]), cx, cy+0.5);
+    });
+
+    // 轴
+    sctx.fillStyle = "rgba(233,238,252,.55)";
+    sctx.font = "11px ui-monospace,monospace";
+    sctx.textAlign = "left"; sctx.textBaseline = "alphabetic";
+    sctx.fillText("x₁ →", N-46, N-10);
+    sctx.save(); sctx.translate(14, 46); sctx.rotate(-Math.PI/2);
+    sctx.fillText("x₂ →", 0, 0); sctx.restore();
+  }
+
+  /* ── 损失曲线 ─────────────────────────────── */
+  const curve = $("curve");
+  const cctx = curve.getContext("2d");
+
+  function renderCurve(){
+    const W = curve.width, H = curve.height;
+    cctx.clearRect(0,0,W,H);
+    const padL = 54, padR = 16, padT = 18, padB = 30;
+    const iw = W - padL - padR, ih = H - padT - padB;
+
+    const seriesA = TRAJ.A.map(s => Math.max(s.loss, 1e-4));
+    const seriesB = TRAJ.B.map(s => Math.max(s.loss, 1e-4));
+    const loLoss = 1e-2, hiLoss = 1;
+
+    const yOf = l => padT + ih * (1 - (Math.log10(l) - Math.log10(loLoss)) / (Math.log10(hiLoss)-Math.log10(loLoss)));
+    const xOf = e => padL + iw * (e / EPOCHS);
+
+    // grid
+    cctx.strokeStyle = "rgba(38,48,79,.8)";
+    cctx.lineWidth = 1;
+    [1, 0.5, 0.2, 0.1, 0.05, 0.02].forEach(l => {
+      const y = yOf(l);
+      cctx.beginPath(); cctx.moveTo(padL, y); cctx.lineTo(W-padR, y); cctx.stroke();
+      cctx.fillStyle = "#616e8e";
+      cctx.font = "10.5px ui-monospace,monospace";
+      cctx.textAlign = "right"; cctx.textBaseline = "middle";
+      cctx.fillText(l.toFixed(2), padL-9, y);
+    });
+    [0, 65, 130, 195, 260].forEach(e => {
+      const x = xOf(e);
+      cctx.strokeStyle = "rgba(38,48,79,.5)";
+      cctx.beginPath(); cctx.moveTo(x, padT); cctx.lineTo(x, padT+ih); cctx.stroke();
+      cctx.fillStyle = "#616e8e";
+      cctx.textAlign = "center"; cctx.textBaseline = "top";
+      cctx.fillText(String(e), x, padT+ih+8);
+    });
+    cctx.fillStyle = "#616e8e";
+    cctx.textAlign = "left"; cctx.textBaseline = "top";
+    cctx.fillText("loss（对数刻度）", padL+2, 2);
+
+    const drawLine = (series, color, dash, width) => {
+      cctx.save();
+      cctx.setLineDash(dash || []);
+      cctx.strokeStyle = color; cctx.lineWidth = width || 2;
+      cctx.lineJoin = "round";
+      cctx.beginPath();
+      series.forEach((l,e) => {
+        const x = xOf(e), y = yOf(l);
+        e ? cctx.lineTo(x,y) : cctx.moveTo(x,y);
+      });
+      cctx.stroke();
+      cctx.restore();
+    };
+
+    drawLine(seriesB, "rgba(255,138,168,.5)", [4,4], 1.6);
+    drawLine(seriesA, "rgba(142,240,122,1)", null, 2.2);
+
+    // marker
+    const mx = xOf(ui.epoch), my = yOf(seriesA[ui.epoch]);
+    cctx.strokeStyle = "rgba(90,209,255,.55)";
+    cctx.lineWidth = 1;
+    cctx.setLineDash([3,3]);
+    cctx.beginPath(); cctx.moveTo(mx, padT); cctx.lineTo(mx, padT+ih); cctx.stroke();
+    cctx.setLineDash([]);
+    cctx.beginPath(); cctx.arc(mx, my, 4.5, 0, Math.PI*2);
+    cctx.fillStyle = "#8ef07a"; cctx.fill();
+    cctx.strokeStyle = "#0b1120"; cctx.lineWidth = 2; cctx.stroke();
+  }
+
+  /* ── 面板同步 ─────────────────────────────── */
+  function renderAll(){
+    const e = ui.epoch;
+    const snap = cur();
+    const st = snap.state;
+    const maxW = Math.max(...[st.W[0][0],st.W[0][1],st.W[1][0],st.W[1][1],st.V[0],st.V[1]].map(Math.abs));
+
+    $("epochTag").textContent = "epoch " + e;
+    $("surfTag").textContent = "epoch " + e;
+    $("epNow").textContent = e;
+    $("slider").value = e;
+    $("slider").style.setProperty("--pct", (e/EPOCHS*100).toFixed(2) + "%");
+
+    $("cLoss").textContent = snap.loss.toFixed(4);
+    $("cAcc").innerHTML = snap.acc + "<small>/4</small>";
+    $("cW").textContent = maxW.toFixed(2);
+    $("stLoss").textContent = TRAJ[ui.preset][EPOCHS].loss.toFixed(3);
+    $("stAcc").innerHTML = TRAJ[ui.preset][EPOCHS].acc + "<small>/4</small>";
+    $("stW").textContent = Math.max(...[TRAJ[ui.preset][EPOCHS].state.W[0][0],TRAJ[ui.preset][EPOCHS].state.W[0][1],
+      TRAJ[ui.preset][EPOCHS].state.W[1][0],TRAJ[ui.preset][EPOCHS].state.W[1][1],
+      TRAJ[ui.preset][EPOCHS].state.V[0],TRAJ[ui.preset][EPOCHS].state.V[1]].map(Math.abs)).toFixed(1);
+
+    renderForward();
+    renderNet();
+    renderSurface();
+    renderCurve();
+  }
+
+  /* ── 交互 ─────────────────────────────────── */
+  $("slider").addEventListener("input", ev => {
+    ui.epoch = parseInt(ev.target.value,10);
+    stopPlay();
+    renderAll();
+  });
+
+  function stopPlay(){
+    if (ui.timer){ clearInterval(ui.timer); ui.timer = null; }
+    $("play").textContent = "▶ 从头播放";
+  }
+
+  $("play").addEventListener("click", () => {
+    if (ui.timer){ stopPlay(); return; }
+    ui.epoch = 0;
+    renderAll();
+    $("play").textContent = "❙❙ 暂停";
+    ui.timer = setInterval(() => {
+      ui.epoch = Math.min(EPOCHS, ui.epoch + 2);
+      renderAll();
+      if (ui.epoch >= EPOCHS) stopPlay();
+    }, 26);
+  });
+
+  $("reset").addEventListener("click", () => { stopPlay(); ui.epoch = 0; renderAll(); });
+
+  const setPreset = (k) => {
+    ui.preset = k;
+    $("presetA").classList.toggle("primary", k === "A");
+    $("presetB").classList.toggle("primary", k === "B");
+    $("presetNote").innerHTML = PRESETS[k].note;
+    renderAll();
+  };
+  $("presetA").addEventListener("click", () => setPreset("A"));
+  $("presetB").addEventListener("click", () => setPreset("B"));
+
+  $("copy").addEventListener("click", async () => {
+    const s = cur().state;
+    const txt = JSON.stringify({ epoch: ui.epoch, W: s.W, b: s.b, v: s.V, c: s.c }, null, 2);
+    try {
+      await navigator.clipboard.writeText(txt);
+      $("copy").textContent = "已复制 ✓";
+    } catch {
+      const ta = document.createElement("textarea");
+      ta.value = txt; document.body.appendChild(ta); ta.select();
+      document.execCommand("copy"); ta.remove();
+      $("copy").textContent = "已复制 ✓";
+    }
+    setTimeout(() => $("copy").textContent = "复制参数", 1400);
+  });
+
+  document.addEventListener("keydown", e => {
+    if (e.target.tagName === "INPUT") return;
+    if (e.key === "ArrowRight"){ ui.epoch = Math.min(EPOCHS, ui.epoch+1); renderAll(); }
+    if (e.key === "ArrowLeft"){ ui.epoch = Math.max(0, ui.epoch-1); renderAll(); }
+  });
+
+  /* ── 参数对照表 ───────────────────────────── */
+  const f64 = [5.562190, 7.810641, 5.571447, 7.760111, -8.379090, -3.547753, -10.238201, 9.750504, -4.570944];
+  const f32 = [5.562189, 7.810641, 5.571446, 7.760112, -8.379090, -3.547753, -10.238201, 9.750504, -4.570942];
+  const names = ["W[0][0]","W[0][1]","W[1][0]","W[1][1]","b[0]","b[1]","v[0]","v[1]","c"];
+  $("paramRows").innerHTML = names.map((n,i) =>
+    `<tr><td>${n}</td><td>${f64[i].toFixed(6)}</td><td>${f32[i].toFixed(6)}</td></tr>`
+  ).join("");
+
+  /* ── 启动 ─────────────────────────────────── */
+  buildNet();
+  renderAll();
+  setPreset("A");
+})();
+</script>
+</body>
+</html>
